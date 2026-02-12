@@ -67,8 +67,6 @@ $Global:WinfigPaths = @{
     Logs            = [System.IO.Path]::Combine([Environment]::GetEnvironmentVariable("TEMP"), "Winfig-Logs")
 }
 $Global:WinfigPaths.DotFiles = [System.IO.Path]::Combine($Global:WinfigPaths.UserProfile, ".Dotfiles")
-$Global:WinfigPaths.FontFolder = "C:\Windows\Fonts"
-$Global:WinfigPaths.RegPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts"
 
 # ====================================================================== #
 # Start Time, Resets, Counters
@@ -460,135 +458,137 @@ function Test-GitInstalled {
 }
 
 # ---------------------------------------------------------------------------- #
-# Install Fonts for all users
-function Install-Font {
-    param([string]$FontFile)
+#  Install Cursors
+function Install-Cursors {
+    $sourceDir = [System.IO.Path]::Combine($Global:WinfigPaths.DotFiles, "winfig-customization", "Cursors")
 
-    $FontFileName = [System.IO.Path]::GetFileName($FontFile)
-    $DestFontFile = Join-Path $Global:WinfigPaths.FontFolder $FontFileName
-    $FontName = [System.IO.Path]::GetFileNameWithoutExtension($FontFile)
-    $RegName = "$FontName (TrueType)"
+    $cursorThemes = @(
+        @{ Name = "Sunity"; Options = @("Light", "Dark") },
+        @{ Name = "Win 11 Concept"; Options = @("Light", "Dark") }
+    )
 
-    # Check if font is already registered
-    $isRegistered = $false
-    try {
-        $existingReg = Get-ItemProperty -Path $Global:WinfigPaths.RegPath -Name $RegName -ErrorAction SilentlyContinue
-        if ($existingReg -and $existingReg.$RegName -eq $FontFileName) {
-            $isRegistered = $true
-        }
-    } catch { }
-
-    # Copy font file if it doesn't exist
-    if (-not (Test-Path $DestFontFile)) {
-        Copy-Item $FontFile -Destination $DestFontFile -Force
-        Show-SuccessMessage "Copied font: $FontFileName"
-        Log-Message -Message "Copied font: $FontFileName" -Level "SUCCESS"
-    } else {
-        Show-InfoMessage "Font file exists: $FontFileName"
-        Log-Message -Message "Font file exists: $FontFileName" -Level "INFO"
-    }
-
-    # Register font in registry
-    try {
-        Remove-ItemProperty -Path $Global:WinfigPaths.RegPath -Name $RegName -ErrorAction SilentlyContinue
-        New-ItemProperty -Path $Global:WinfigPaths.RegPath -Name $RegName -Value $FontFileName -PropertyType String -Force | Out-Null
-
-        if ($isRegistered) {
-            Show-SuccessMessage "Re-registered font: $FontName"
-            Log-Message -Message "Re-registered font: $FontName" -Level "SUCCESS"
-        } else {
-            Show-SuccessMessage "Registered font: $FontName"
-            Log-Message -Message "Registered font: $FontName" -Level "SUCCESS"
-        }
-    } catch {
-        Show-ErrorMessage "Failed to register font: $FontFileName - $($_.Exception.Message)"
-        Log-Message -Message "Failed to register font: $FontFileName - $($_.Exception.Message)" -Level "ERROR"
-    }
-}
-
-# ---------------------------------------------------------------------------- #
-# Process Font Installation
-function Process-FontInstallation {
-    Show-InfoMessage "Starting font installation process..."
-    Log-Message -Message "Starting font installation process..." -Level "INFO"
-
-    # Ensure fonts folder exists
-    New-Item -ItemType Directory -Force -Path $Global:WinfigPaths.FontFolder | Out-Null
-
-    # Define font source folder and zip files
-    $SourceFolder = Join-Path $Global:WinfigPaths.DotFiles "winfig-customization\Fonts"
-    $FontZips = @("Hack.zip", "JetBrainsMono.zip")
-
-    # Create temp directory for extraction
-    $TempDir = Join-Path $env:TEMP "FontInstall"
-    New-Item -ItemType Directory -Force -Path $TempDir | Out-Null
-    Log-Message -Message "Created temporary directory: $TempDir" -Level "INFO"
-
-    foreach ($ZipName in $FontZips) {
-        $ZipPath = Join-Path $SourceFolder $ZipName
-
-        if (-not (Test-Path $ZipPath)) {
-            Show-WarningMessage "Missing ZIP file: $ZipName"
-            Log-Message -Message "Missing ZIP file: $ZipName" -Level "WARN"
-            continue
-        }
-
-        try {
-            Show-InfoMessage "Processing: $ZipName"
-            Log-Message -Message "Processing: $ZipName" -Level "INFO"
-
-            # Clean temp directory
-            Remove-Item "$TempDir\*" -Recurse -Force -ErrorAction SilentlyContinue
-
-            # Extract zip to temp directory
-            Expand-Archive -Path $ZipPath -DestinationPath $TempDir -Force
-
-            # Find all font files in the extracted contents
-            $FontFiles = Get-ChildItem -Path $TempDir -Include "*.ttf", "*.otf", "*.ttc" -Recurse
-
-            if ($FontFiles.Count -eq 0) {
-                Show-WarningMessage "No font files found in: $ZipName"
-                Log-Message -Message "No font files found in: $ZipName" -Level "WARN"
-                continue
-            }
-
-            Show-SuccessMessage "Found $($FontFiles.Count) font file(s) in $ZipName"
-            Log-Message -Message "Found $($FontFiles.Count) font file(s) in $ZipName" -Level "SUCCESS"
-
-            foreach ($FontFile in $FontFiles) {
-                Install-Font -FontFile $FontFile.FullName
-            }
-
-        } catch {
-            Show-ErrorMessage "Failed to process: $ZipName - $($_.Exception.Message)"
-            Log-Message -Message "Failed to process: $ZipName - $($_.Exception.Message)" -Level "ERROR"
-        }
-    }
-
-    # Clean up temp directory
-    Remove-Item $TempDir -Recurse -Force -ErrorAction SilentlyContinue
-    Log-Message -Message "Cleaned up temporary directory" -Level "INFO"
-
-    # Refresh font cache
+    # Display cursor theme menu
     Write-Host ""
-    Show-InfoMessage "Refreshing font cache..."
-    Log-Message -Message "Refreshing font cache..." -Level "INFO"
-    try {
-        Stop-Service -Name FontCache -Force -ErrorAction SilentlyContinue
-        Start-Service -Name FontCache -ErrorAction SilentlyContinue
+    Write-Host "Available Cursor Themes:" -ForegroundColor $Script:WinfigColors.Primary
+    Write-Host ""
+    for ($i = 0; $i -lt $cursorThemes.Count; $i++) {
+        Write-Host "  [$($i + 1)] $($cursorThemes[$i].Name)" -ForegroundColor $Script:WinfigColors.Accent
+    }
+    Write-Host ""
 
-        Add-Type -AssemblyName System.Windows.Forms
-        $null = [System.Windows.Forms.TextRenderer]::MeasureText("test", (New-Object System.Drawing.Font "Arial", 12))
-
-        Show-SuccessMessage "Font cache refreshed successfully"
-        Log-Message -Message "Font cache refreshed successfully" -Level "SUCCESS"
-    } catch {
-        Show-WarningMessage "Font cache may need manual refresh"
-        Log-Message -Message "Font cache may need manual refresh: $($_.Exception.Message)" -Level "WARN"
+    # Get user selection for theme
+    $themeSelection = -1
+    while ($themeSelection -lt 0 -or $themeSelection -ge $cursorThemes.Count) {
+        $response = Prompt-UserInput -PromptMessage "[?] Select cursor theme (1-$($cursorThemes.Count)): " -PromptColor $Script:WinfigColors.Primary
+        if ($response -match '^\d+$' -and [int]$response -ge 1 -and [int]$response -le $cursorThemes.Count) {
+            $themeSelection = [int]$response - 1
+        } else {
+            Show-WarningMessage "Invalid selection. Please enter a number between 1 and $($cursorThemes.Count)."
+        }
     }
 
-    Show-SuccessMessage "Font installation completed"
-    Log-Message -Message "Font installation completed" -Level "SUCCESS"
+    $selectedTheme = $cursorThemes[$themeSelection]
+    Show-SuccessMessage "Selected theme: $($selectedTheme.Name)"
+    Log-Message -Message "User selected cursor theme: $($selectedTheme.Name)" -Level "INFO"
+
+    # Display variant options
+    Write-Host ""
+    Write-Host "Available Variants:" -ForegroundColor $Script:WinfigColors.Primary
+    Write-Host ""
+    for ($i = 0; $i -lt $selectedTheme.Options.Count; $i++) {
+        Write-Host "  [$($i + 1)] $($selectedTheme.Options[$i])" -ForegroundColor $Script:WinfigColors.Accent
+    }
+    Write-Host ""
+
+    # Get user selection for variant
+    $variantSelection = -1
+    while ($variantSelection -lt 0 -or $variantSelection -ge $selectedTheme.Options.Count) {
+        $response = Prompt-UserInput -PromptMessage "[?] Select variant (1-$($selectedTheme.Options.Count)): " -PromptColor $Script:WinfigColors.Primary
+        if ($response -match '^\d+$' -and [int]$response -ge 1 -and [int]$response -le $selectedTheme.Options.Count) {
+            $variantSelection = [int]$response - 1
+        } else {
+            Show-WarningMessage "Invalid selection. Please enter a number between 1 and $($selectedTheme.Options.Count)."
+        }
+    }
+
+    $selectedVariant = $selectedTheme.Options[$variantSelection]
+    Show-SuccessMessage "Selected variant: $selectedVariant"
+    Log-Message -Message "User selected cursor variant: $selectedVariant" -Level "INFO"
+
+    # Build path to selected cursor folder
+    $cursorFolder = [System.IO.Path]::Combine($sourceDir, $selectedTheme.Name, $selectedVariant)
+
+    # Check if cursor folder exists
+    if (-not (Test-Path -Path $cursorFolder)) {
+        Show-ErrorMessage "Cursor folder not found at: $cursorFolder"
+        Log-Message -Message "Cursor folder not found at: $cursorFolder" -Level "ERROR"
+        return $false
+    }
+
+    # Build path to Install.inf
+    $infPath = [System.IO.Path]::Combine($cursorFolder, "Install.inf")
+
+    # Check if Install.inf exists
+    if (-not (Test-Path -Path $infPath)) {
+        Show-ErrorMessage "Install.inf not found at: $infPath"
+        Log-Message -Message "Install.inf not found at: $infPath" -Level "ERROR"
+        return $false
+    }
+
+    Show-InfoMessage "Found cursor folder at: $cursorFolder"
+    Log-Message -Message "Opening cursor folder for manual installation: $cursorFolder" -Level "INFO"
+
+    # Open the folder in Explorer
+    try {
+        Start-Process explorer.exe -ArgumentList $cursorFolder
+        Show-SuccessMessage "Opened cursor folder in Explorer"
+        Log-Message -Message "Opened cursor folder in Explorer: $cursorFolder" -Level "SUCCESS"
+    } catch {
+        Show-ErrorMessage "Failed to open cursor folder: $($_.Exception.Message)"
+        Log-Message -Message "Failed to open cursor folder: $($_.Exception.Message)" -Level "ERROR"
+        return $false
+    }
+
+    # Wait a moment for Explorer to open
+    Start-Sleep -Seconds 2
+
+    # Show instructions using Windows MessageBox
+    try {
+        Add-Type -AssemblyName PresentationFramework
+        [System.Windows.MessageBox]::Show(
+            "Cursor Installation Instructions:`n`n" +
+            "1. In the opened folder, right-click 'Install.inf'`n" +
+            "2. Select 'Install' from the context menu`n" +
+            "3. Follow any prompts to complete installation`n`n" +
+            "Selected: $($selectedTheme.Name) - $selectedVariant`n`n" +
+            "After installation:`n" +
+            "• Go to Settings > Personalization > Themes > Mouse cursor`n" +
+            "• Select your new cursor theme`n" +
+            "• Click Apply",
+            "Winfig Cursor Installation",
+            [System.Windows.MessageBoxButton]::OK,
+            [System.Windows.MessageBoxImage]::Information
+        ) | Out-Null
+
+        Show-SuccessMessage "Installation instructions displayed"
+        Log-Message -Message "Cursor installation instructions displayed to user" -Level "SUCCESS"
+        return $true
+    } catch {
+        # Fallback to console output if MessageBox fails
+        Write-Host ""
+        Show-InfoMessage "Manual Installation Required:"
+        Write-Host "  1. In the opened folder, right-click 'Install.inf'" -ForegroundColor $Script:WinfigColors.Accent
+        Write-Host "  2. Select 'Install' from the context menu" -ForegroundColor $Script:WinfigColors.Accent
+        Write-Host "  3. Follow any prompts to complete installation" -ForegroundColor $Script:WinfigColors.Accent
+        Write-Host ""
+        Write-Host "  After installation:" -ForegroundColor $Script:WinfigColors.Info
+        Write-Host "  • Go to Settings > Personalization > Themes > Mouse cursor" -ForegroundColor $Script:WinfigColors.Accent
+        Write-Host "  • Select your new cursor theme" -ForegroundColor $Script:WinfigColors.Accent
+        Write-Host "  • Click Apply" -ForegroundColor $Script:WinfigColors.Accent
+
+        Log-Message -Message "Cursor installation instructions displayed (console fallback)" -Level "SUCCESS"
+        return $true
+    }
 }
 
 # ====================================================================== #
@@ -653,12 +653,9 @@ Write-Host ""
 Prompt-UserContinue
 
 Winfig-Banner
-Write-SectionHeader -Title "Installing Fonts"
+Write-SectionHeader -Title "Installing Cursor Theme"
 Write-Host ""
-Process-FontInstallation
-
-Write-Host ""
-Prompt-UserContinue
+Install-Cursors
 
 Write-Host ""
 Write-SectionHeader -Title "Thank You For Using Winfig Customization" -Description "https://github.com/Get-Winfig/"
